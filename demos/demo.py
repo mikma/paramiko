@@ -29,6 +29,7 @@ import os
 import socket
 import sys
 import traceback
+from typing import NamedTuple, Type
 
 import paramiko
 
@@ -59,47 +60,42 @@ def agent_auth(transport, username):
             print("... nope.")
 
 
+class KeyFile(NamedTuple):
+    name: str
+    entry: str
+    file_name: str
+    cls: Type[paramiko.PKey]
+
+key_files = {
+    "r": KeyFile("RSA", "(r)sa", "id_rsa", paramiko.RSAKey),
+    "d": KeyFile("DSS", "(d)ss", "id_dsa", paramiko.DSSKey),
+    "e": KeyFile("ed25519", "(e)25519", "id_ed25519", paramiko.Ed25519Key),
+    "ec": KeyFile("ECDA", "(ec)da", "id_ecdsa", paramiko.ECDSAKey),
+}
+
+
 def manual_auth(username, hostname):
     default_auth = "p"
+    entries = [x.entry for x in key_files.values()]
+    entries[-1] = "or " + entries[-1]
     auth = input(
-        "Auth by (p)assword, (r)sa key, (d)ss key, or (e)25519 key? [%s] "
-        % default_auth
+        "Auth by (p)assword, %s key? [%s] "
+        % (", ".join(entries), default_auth)
     )
     if len(auth) == 0:
         auth = default_auth
 
-    if auth == "r":
-        default_path = os.path.join(os.environ["HOME"], ".ssh", "id_rsa")
-        path = input("RSA key [%s]: " % default_path)
+    if auth in key_files:
+        key_file = key_files[auth]
+        default_path = os.path.join(os.environ["HOME"], ".ssh", key_file.file_name)
+        path = input("%s key [%s]: " % (key_file.name, default_path))
         if len(path) == 0:
             path = default_path
         try:
-            key = paramiko.RSAKey.from_private_key_file(path)
+            key = key_file.cls.from_private_key_file(path)
         except paramiko.PasswordRequiredException:
-            password = getpass.getpass("RSA key password: ")
-            key = paramiko.RSAKey.from_private_key_file(path, password)
-        t.auth_publickey(username, key)
-    elif auth == "d":
-        default_path = os.path.join(os.environ["HOME"], ".ssh", "id_dsa")
-        path = input("DSS key [%s]: " % default_path)
-        if len(path) == 0:
-            path = default_path
-        try:
-            key = paramiko.DSSKey.from_private_key_file(path)
-        except paramiko.PasswordRequiredException:
-            password = getpass.getpass("DSS key password: ")
-            key = paramiko.DSSKey.from_private_key_file(path, password)
-        t.auth_publickey(username, key)
-    elif auth == "e":
-        default_path = os.path.join(os.environ["HOME"], ".ssh", "id_ed25519")
-        path = input("ed25519 key [%s]: " % default_path)
-        if len(path) == 0:
-            path = default_path
-        try:
-            key = paramiko.Ed25519Key.from_private_key_file(path)
-        except paramiko.PasswordRequiredException:
-            password = getpass.getpass("ed25519 key password: ")
-            key = paramiko.Ed25519Key.from_private_key_file(path, password)
+            password = getpass.getpass("%s key password: " % key_file.name)
+            key = key_file.cls.from_private_key_file(path, password)
         t.auth_publickey(username, key)
     else:
         pw = getpass.getpass("Password for %s@%s: " % (username, hostname))
