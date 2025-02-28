@@ -48,10 +48,29 @@ class Server(paramiko.ServerInterface):
         b"KDqIexkgHAfID/6mqvmnSJf0b5W8v5h2pI/stOSwTQ+pxVhwJ9ctYDhRSlF0iT"
         b"UWT10hcuO4Ks8="
     )
-    good_pub_key = paramiko.RSAKey(data=decodebytes(data))
 
     def __init__(self):
         self.event = threading.Event()
+        self.good_pub_keys = [paramiko.RSAKey(data=decodebytes(self.data))] \
+            + self._read_authorized_keys()
+
+    def _read_authorized_keys(self):
+        authorized_keys = []
+        try:
+            with open("authorized_keys", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line[0] == "#":
+                        continue
+                    (key_type, key_data, rest) = line.split(" ", 2)
+                    public_key = paramiko.Transport._key_info[key_type](
+                        data=decodebytes(key_data.encode('ascii'))
+                    )
+                    authorized_keys.append(public_key)
+        except IOError:
+            pass
+
+        return authorized_keys
 
     def check_channel_request(self, kind, chanid):
         if kind == "session":
@@ -65,7 +84,7 @@ class Server(paramiko.ServerInterface):
 
     def check_auth_publickey(self, username, key):
         print("Auth attempt with key: " + u(hexlify(key.get_fingerprint())))
-        if (username == "robey") and (key == self.good_pub_key):
+        if (username == "robey") and (key in self.good_pub_keys):
             return paramiko.AUTH_SUCCESSFUL
         return paramiko.AUTH_FAILED
 
